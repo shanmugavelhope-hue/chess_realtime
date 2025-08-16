@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-time Chess</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #0d1117;
+        color: #c9d1d9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .auth {
+        background-color: #161b22;
+        padding: 2rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        max-width: 400px;
+        width: 100%;
+      }
+      .auth.hidden {
+        display: none;
+      }
+      .game-panel {
+        background-color: #161b22;
+        padding: 2rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        max-width: 500px;
+        width: 100%;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+      }
+      .game-panel:not(.hidden) {
+        display: flex;
+      }
+      .auth-status,
+      .game-info {
+        text-align: center;
+        margin-bottom: 1rem;
+        font-size: 1.1rem;
+      }
+      .input-field {
+        width: 100%;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        background-color: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        color: #c9d1d9;
+      }
+      .btn {
+        width: 100%;
+        padding: 0.75rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.3s;
+      }
+      .btn-register {
+        background-color: #238636;
+        color: white;
+        border: none;
+      }
+      .btn-register:hover {
+        background-color: #2ea043;
+      }
+      .btn-login {
+        background-color: #1f6feb;
+        color: white;
+        border: none;
+      }
+      .btn-login:hover {
+        background-color: #388bfd;
+      }
+      .btn-queue,
+      .btn-resign {
+        background-color: #30363d;
+        color: #c9d1d9;
+        border: 1px solid #444c56;
+        margin-top: 1rem;
+      }
+      .btn-queue:hover,
+      .btn-resign:hover {
+        background-color: #444c56;
+      }
+      .chessboard-container {
+        width: 100%;
+        max-width: 480px;
+        margin: 0 auto;
+      }
+      #board {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        grid-template-rows: repeat(8, 1fr);
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      }
+      .square {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 3rem;
+        user-select: none;
+        position: relative;
+      }
+      .square.light {
+        background-color: #f0d9b5;
+      }
+      .square.dark {
+        background-color: #b58863;
+      }
+      .piece {
+        cursor: grab;
+        font-size: 3rem;
+        line-height: 1;
+        position: absolute;
+      }
+      .piece.white {
+        color: black;
+      }
+      .piece.black {
+        color: white;
+      }
+      .drag-over {
+        box-shadow: inset 0 0 5px 5px #00aaff;
+        border: 2px solid #00aaff;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="auth">
+      <h2 class="text-2xl font-bold text-center mb-6">Login / Register</h2>
+      <div class="auth-status" id="authStatus"></div>
+      <div>
+        <input
+          type="text"
+          id="username"
+          class="input-field"
+          placeholder="Username"
+        />
+        <input
+          type="email"
+          id="email"
+          class="input-field"
+          placeholder="Email"
+        />
+        <input
+          type="password"
+          id="password"
+          class="input-field"
+          placeholder="Password"
+        />
+        <div class="flex space-x-2">
+          <button id="btnRegister" class="btn btn-register">Register</button>
+          <button id="btnLogin" class="btn btn-login">Login</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="game-panel hidden">
+      <h2 class="text-2xl font-bold text-center mb-4">Real-time Chess</h2>
+      <div class="game-info" id="gameInfo"></div>
+      <div class="user-info" id="userInfo"></div>
+      <div id="board" class="chessboard-container"></div>
+      <div class="flex justify-center mt-4 space-x-4">
+        <button id="btnQueue" class="btn btn-queue">Join Queue</button>
+        <button id="btnResign" class="btn btn-resign">Resign</button>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+    <script>
+      // Global state variables
+      let token = localStorage.getItem("token") || null;
+      let socket = null;
+      let gameId = null;
+      let myColor = null;
+      let chess = new Chess();
+
+      const els = {
+        username: document.getElementById("username"),
+        email: document.getElementById("email"),
+        password: document.getElementById("password"),
+        btnRegister: document.getElementById("btnRegister"),
+        btnLogin: document.getElementById("btnLogin"),
+        authStatus: document.getElementById("authStatus"),
+        gamePanel: document.querySelector(".game-panel"),
+        userInfo: document.getElementById("userInfo"),
+        gameInfo: document.getElementById("gameInfo"),
+        btnQueue: document.getElementById("btnQueue"),
+        btnResign: document.getElementById("btnResign"),
+        board: document.getElementById("board"),
+      };
+
+      // Utility Functions
+      function setAuthStatus(msg) {
+        els.authStatus.textContent = msg || "";
+      }
+      function showGamePanel() {
+        document.querySelector(".auth").classList.add("hidden");
+        els.gamePanel.classList.remove("hidden");
+        renderBoard();
+      }
+      function api(path, body) {
+        return fetch(window.location.origin + path, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(body || {}),
+        }).then((r) => r.json());
+      }
+      function clearGameState() {
+        gameId = null;
+        myColor = null;
+        chess = new Chess();
+        els.gameInfo.textContent =
+          "You have resigned. Join the queue to play again.";
+        renderBoard(); // Reset board to initial state
+      }
+
+      // Authentication Handlers
+      els.btnRegister.onclick = async () => {
+        const username = els.username.value.trim();
+        const email = els.email.value.trim();
+        const password = els.password.value;
+        const res = await api("/api/auth/register", {
+          username,
+          email,
+          password,
+        });
+        if (res.token) {
+          token = res.token;
+          localStorage.setItem("token", token);
+          setAuthStatus("Registered successfully.");
+          connectSocket();
+          els.userInfo.textContent = `Logged in as ${res.user.username}`;
+          showGamePanel();
+        } else {
+          setAuthStatus(res.message || "Register failed");
+        }
+      };
+
+      els.btnLogin.onclick = async () => {
+        const email = els.email.value.trim();
+        const password = els.password.value;
+        const res = await api("/api/auth/login", { email, password });
+        if (res.token) {
+          token = res.token;
+          localStorage.setItem("token", token);
+          setAuthStatus("Logged in.");
+          connectSocket();
+          els.userInfo.textContent = `Logged in as ${res.user.username}`;
+          showGamePanel();
+        } else {
+          setAuthStatus(res.message || "Login failed");
+        }
+      };
+
+      // Socket.io Handlers
+      function connectSocket() {
+        if (!token) return;
+        socket = io({ auth: { token } });
+
+        socket.on("connect", () => {
+          console.log("socket connected");
+          if (gameId) renderBoard();
+        });
+
+        socket.on("queued", () => {
+          els.gameInfo.textContent = "Waiting for opponent...";
+        });
+
+        socket.on("gameStart", ({ gameId: gid, color, fen }) => {
+          gameId = gid;
+          myColor = color;
+          chess = new Chess(fen);
+          els.gameInfo.textContent = `Game started. You are ${
+            myColor === "w" ? "White" : "Black"
+          }.`;
+          renderBoard();
+        });
+
+        socket.on("state", ({ fen, lastMove, status }) => {
+          chess = new Chess(fen);
+          if (status && status !== "active") {
+            els.gameInfo.textContent = `Game status: ${status}`;
+          }
+          renderBoard();
+        });
+
+        socket.on("invalidMove", ({ from, to }) => {
+          console.log("Invalid move", from, to);
+          // Optional: Render board to revert to last valid state
+          renderBoard();
+        });
+      }
+
+      els.btnQueue.onclick = () => {
+        if (socket) {
+          socket.emit("joinQueue");
+          els.gameInfo.textContent = "Joining queue...";
+        }
+      };
+
+      els.btnResign.onclick = () => {
+        if (socket && gameId) {
+          socket.emit("resign", { gameId });
+          clearGameState();
+        }
+      };
+
+      // Board Rendering and Drag-and-Drop
+      const PIECES = {
+        p: "♟",
+        r: "♜",
+        n: "♞",
+        b: "♝",
+        q: "♛",
+        k: "♚",
+        P: "♙",
+        R: "♖",
+        N: "♘",
+        B: "♗",
+        Q: "♕",
+        K: "♔",
+      };
+
+      function squareId(file, rank) {
+        return "abcdefgh"[file] + (rank + 1);
+      }
+
+      function renderBoard() {
+        els.board.innerHTML = "";
+        const flip = myColor === "b";
+        const files = flip
+          ? [7, 6, 5, 4, 3, 2, 1, 0]
+          : [0, 1, 2, 3, 4, 5, 6, 7];
+        const ranks = flip
+          ? [0, 1, 2, 3, 4, 5, 6, 7]
+          : [7, 6, 5, 4, 3, 2, 1, 0];
+
+        ranks.forEach((r) => {
+          files.forEach((f) => {
+            const sq = squareId(f, r);
+            const piece = chess.get(sq);
+            const colorClass = (r + f) % 2 === 0 ? "light" : "dark";
+            const div = document.createElement("div");
+            div.className = `square ${colorClass}`;
+            div.dataset.square = sq;
+            div.setAttribute("role", "gridcell");
+
+            if (piece) {
+              const span = document.createElement("span");
+              span.textContent =
+                PIECES[
+                  piece.color === "w" ? piece.type.toUpperCase() : piece.type
+                ];
+              span.className = `piece ${
+                piece.color === "w" ? "white" : "black"
+              }`;
+              span.draggable =
+                myColor === piece.color && chess.turn() === myColor;
+              span.addEventListener("dragstart", onDragStart);
+              div.appendChild(span);
+            }
+            div.addEventListener("dragover", onDragOver);
+            div.addEventListener("dragleave", onDragLeave);
+            div.addEventListener("drop", onDrop);
+            els.board.appendChild(div);
+          });
+        });
+      }
+
+      let dragFrom = null;
+      function onDragStart(e) {
+        const sq = e.target.parentElement.dataset.square;
+        dragFrom = sq;
+        e.dataTransfer.setData("text/plain", sq);
+      }
+      function onDragOver(e) {
+        e.preventDefault();
+        e.currentTarget.classList.add("drag-over");
+      }
+      function onDragLeave(e) {
+        e.preventDefault();
+        e.currentTarget.classList.remove("drag-over");
+      }
+      function onDrop(e) {
+        e.preventDefault();
+        const to = e.currentTarget.dataset.square;
+        e.currentTarget.classList.remove("drag-over");
+        const from = dragFrom || e.dataTransfer.getData("text/plain");
+        if (!from || !to || from === to) return;
+
+        const test = new Chess(chess.fen());
+        const mv = test.move({ from, to, promotion: "q" }); // Hardcoded promotion for simplicity
+        if (!mv) return;
+
+        if (socket && gameId) {
+          socket.emit("move", {
+            gameId,
+            from,
+            to,
+            promotion: mv.promotion,
+          });
+        }
+        dragFrom = null;
+      }
+
+      // Initial page load
+      window.addEventListener("DOMContentLoaded", () => {
+        if (token) {
+          connectSocket();
+          showGamePanel();
+          fetch(window.location.origin + "/api/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => r.json())
+            .then((u) => {
+              if (u?.username)
+                els.userInfo.textContent = `Logged in as ${u.username}`;
+            });
+        }
+      });
+    </script>
+  </body>
+</html>
